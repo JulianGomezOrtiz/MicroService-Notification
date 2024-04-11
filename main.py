@@ -1,35 +1,54 @@
-from azure.communication.email import EmailClient
 from flask import Flask, request, jsonify
 import os
-from bson import DBRef, ObjectId
+import random
 from dotenv import load_dotenv
+from azure.communication.email import EmailClient
+from pymongo import MongoClient
+from bson import ObjectId
+
 # Carga las variables de entorno desde el archivo .env
 load_dotenv()
 app = Flask(__name__)
 
+
 def get_database():
-   connection_string = os.environ.get("CONNECTION_STRING_Mongo")
-   client = MongoClient(connection_string)
- 
-   return client['security']
+    connection_string = os.environ.get("CONNECTION_STRING_Mongo")
+    client = MongoClient(connection_string)
+    return client['security']
 
+#ruta para el reseteo de contraseña
+@app.route('/reset_password', methods=['POST'])
+def reset_password():
+    data = request.json
+    user_id = data.get("user_id")
 
-email = "juliangomezortiz.05@gmail.com"
+    # Obtener el correo electrónico del usuario desde MongoDB
+    db = get_database()
+    users_collection = db['users']
+    user = users_collection.find_one({"_id": ObjectId(user_id)})
+    if not user:
+        return jsonify({'error': 'Usuario no encontrado'}), 404
 
-@app.route('/send_email', methods=['POST'])
-def main():
+    email = user.get("email")
+
+    # Generar un token único para el restablecimiento de contraseña
+    reset_token = ''.join(random.choices(
+        'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890', k=16))
+
+    # Enviar correo electrónico de restablecimiento de contraseña
     try:
         connection_string = os.environ.get("CONNECTION_STRING")
         client = EmailClient.from_connection_string(connection_string)
 
         message = {
             "senderAddress": os.environ.get("SENDER_ADDRESS"),
-            "recipients":  {
-                "to": [{"address": email }],
+            "recipients": {
+                #(sin conexion a ms-seguridad aún)
+                "to": [{"address": email}],
             },
             "content": {
-                "subject": "Correo electrónico de prueba",
-                "plainText": "Hola mundo por correo electrónico.",
+                "subject": "Restablecimiento de contraseña",
+                "html": f'<p>Haga clic en el siguiente enlace para restablecer su contraseña: <a href="http://example.com/reset_password?token={reset_token}">Restablecer contraseña</a></p>'
             }
         }
 
@@ -38,63 +57,32 @@ def main():
 
     except Exception as ex:
         print(ex)
-    return jsonify({'message': 'Email sent successfullsy'}), 200
+        return jsonify({'error': 'Error al enviar el correo electrónico'}), 500
+
+    return jsonify({'message': 'Correo electrónico de restablecimiento de contraseña enviado correctamente'}), 200
 
 
-@app.route('/change_password', methods=['POST'])
-def change_password():
+@app.route('/send_verification_code', methods=['POST'])
+def send_verification_code():
     data = request.json
+    email = data.get("email")
 
-    random_digits = ''.join(random.choices('123456789', k=4))
+    # Generar un código de verificación único
+    verification_code = ''.join(random.choices('1234567890', k=6))
 
-    databaseConnection = get_database()
-    collection_session = databaseConnection['session']
-    collection_users = databaseConnection['user'] 
-
-    user_document=collection_users.find_one({"_id": ObjectId(data["_id"])})
-    findEmail = collection_session.find_one({"user": DBRef('user', user_document["_id"])})
-
-    if findEmail:
-        collection_session.update_one(
-        {"user": DBRef('user', user_document["_id"])},
-        {"$set": {"code": random_digits}}
-    )
-    else:
-
-        newData = {
-            "user": DBRef('user', user_document["_id"]),
-            "active": False,
-            "code": random_digits,
-            "_class": "com.msurbaNavSecurity.msurbaNavSecurity.Models.Session"
-        }
-
-        collection_session.insert_one(newData)
-
-
-    html_file_path = "plantillas/change_password.html"
-    html_content = ''
-
-    # Lee el contenido del archivo HTML
-    with open(html_file_path, 'r', encoding= 'utf8') as file:
-        html_content = file.read()
-
-    print(f"Email: {data['email']}")
-
-    # Genera los 4 dígitos aleatorios para el "body"
-    html_content_number = html_content.replace("$$$", random_digits)
-
+    # Enviar correo electrónico con el código de verificación
     try:
-        connection_string =os.environ.get("CONNECTION_STRING")
+        connection_string = os.environ.get("CONNECTION_STRING")
         client = EmailClient.from_connection_string(connection_string)
-        print(connection_string)
+
         message = {
             "senderAddress": os.environ.get("SENDER_ADDRESS"),
-            "recipients":  {
-                "to": [{"address": data['email']}],
+            "recipients": {
+                "to": [{"address": email}],
             },
             "content": {
-                "subject": "Código para cambiar contraseña UrbanNav",
-                "html": html_content_number
+                "subject": "Código de verificación",
+                "html": f'<p>Su código de verificación es: {verification_code}</p>'
             }
         }
 
@@ -103,7 +91,9 @@ def change_password():
 
     except Exception as ex:
         print(ex)
-    return jsonify({'message': 'Email sent successfully'}), 200
+        return jsonify({'error': 'Error al enviar el correo electrónico'}), 500
+
+    return jsonify({'message': 'Correo electrónico con código de verificación enviado correctamente'}), 200
 
 
 if __name__ == '__main__':
