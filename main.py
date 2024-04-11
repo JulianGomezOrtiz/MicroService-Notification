@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 from azure.communication.email import EmailClient
 from pymongo import MongoClient
 from bson import ObjectId
+import requests
 
 # Carga las variables de entorno desde el archivo .env
 load_dotenv()
@@ -16,7 +17,9 @@ def get_database():
     client = MongoClient(connection_string)
     return client['security']
 
-#ruta para el reseteo de contraseña
+# Ruta para el restablecimiento de contraseña
+
+
 @app.route('/reset_password', methods=['POST'])
 def reset_password():
     data = request.json
@@ -35,29 +38,13 @@ def reset_password():
     reset_token = ''.join(random.choices(
         'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890', k=16))
 
-    # Enviar correo electrónico de restablecimiento de contraseña
+    # Llamar al endpoint de ms-security para enviar el correo electrónico de restablecimiento de contraseña
     try:
-        connection_string = os.environ.get("CONNECTION_STRING")
-        client = EmailClient.from_connection_string(connection_string)
-
-        message = {
-            "senderAddress": os.environ.get("SENDER_ADDRESS"),
-            "recipients": {
-                #(sin conexion a ms-seguridad aún)
-                "to": [{"address": email}],
-            },
-            "content": {
-                "subject": "Restablecimiento de contraseña",
-                "html": f'<p>Haga clic en el siguiente enlace para restablecer su contraseña: <a href="http://example.com/reset_password?token={reset_token}">Restablecer contraseña</a></p>'
-            }
-        }
-
-        poller = client.begin_send(message)
-        result = poller.result()
-
-    except Exception as ex:
-        print(ex)
-        return jsonify({'error': 'Error al enviar el correo electrónico'}), 500
+        response = requests.post('http://localhost:8181/api/security/reset_password',
+                                 json={"email": email, "reset_token": reset_token})
+        response.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        return jsonify({'error': f'Error al llamar al microservicio de seguridad: {str(e)}'}), 500
 
     return jsonify({'message': 'Correo electrónico de restablecimiento de contraseña enviado correctamente'}), 200
 
@@ -70,28 +57,13 @@ def send_verification_code():
     # Generar un código de verificación único
     verification_code = ''.join(random.choices('1234567890', k=6))
 
-    # Enviar correo electrónico con el código de verificación
+    # Llamar al endpoint de ms-security para enviar el correo electrónico con el código de verificación
     try:
-        connection_string = os.environ.get("CONNECTION_STRING")
-        client = EmailClient.from_connection_string(connection_string)
-
-        message = {
-            "senderAddress": os.environ.get("SENDER_ADDRESS"),
-            "recipients": {
-                "to": [{"address": email}],
-            },
-            "content": {
-                "subject": "Código de verificación",
-                "html": f'<p>Su código de verificación es: {verification_code}</p>'
-            }
-        }
-
-        poller = client.begin_send(message)
-        result = poller.result()
-
-    except Exception as ex:
-        print(ex)
-        return jsonify({'error': 'Error al enviar el correo electrónico'}), 500
+        response = requests.post('http://localhost:8181/api/security/send_verification_code',
+                                 json={"email": email, "verification_code": verification_code})
+        response.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        return jsonify({'error': f'Error al llamar al microservicio de seguridad: {str(e)}'}), 500
 
     return jsonify({'message': 'Correo electrónico con código de verificación enviado correctamente'}), 200
 
