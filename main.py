@@ -1,74 +1,202 @@
-from flask import Flask, request, jsonify
 import os
-import random
+from flask import Flask, request, jsonify
 from dotenv import load_dotenv
+from waitress import serve
 from azure.communication.email import EmailClient
-from pymongo import MongoClient
-from bson import ObjectId
-import requests
 
-# Carga las variables de entorno desde el archivo .env
 load_dotenv()
 app = Flask(__name__)
 
+connection_string = os.environ.get("CONNECTION_STRING")
+client = EmailClient.from_connection_string(connection_string)
+sender = os.environ.get("SENDER_ADDRESS")
 
-def get_database():
-    connection_string = os.environ.get("CONNECTION_STRING_Mongo")
-    client = MongoClient(connection_string)
-    return client['security']
+@app.route('/send_email', methods=['POST'])
+def send_email():
+    data = request.get_json()
 
-# Ruta para el restablecimiento de contraseña
+    if 'email' not in data or 'subject' not in data or 'body' not in data:
+        return jsonify({'error': 'Missing required fields'})
 
-
-@app.route('/reset_password', methods=['POST'])
-def reset_password():
-    data = request.json
-    user_id = data.get("user_id")
-
-    # Obtener el correo electrónico del usuario desde MongoDB
-    db = get_database()
-    users_collection = db['users']
-    user = users_collection.find_one({"_id": ObjectId(user_id)})
-    if not user:
-        return jsonify({'error': 'Usuario no encontrado'}), 404
-
-    email = user.get("email")
-
-    # Generar un token único para el restablecimiento de contraseña
-    reset_token = ''.join(random.choices(
-        'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890', k=16))
-
-    # Llamar al endpoint de ms-security para enviar el correo electrónico de restablecimiento de contraseña
     try:
-        response = requests.post('http://localhost:8181/api/security/reset_password',
-                                 json={"email": email, "reset_token": reset_token})
-        response.raise_for_status()
-    except requests.exceptions.RequestException as e:
-        return jsonify({'error': f'Error al llamar al microservicio de seguridad: {str(e)}'}), 500
 
-    return jsonify({'message': 'Correo electrónico de restablecimiento de contraseña enviado correctamente'}), 200
+        message = {
+            "senderAddress": os.environ.get("SENDER_ADDRESS"),
+            "recipients":  {
+                "to": [{"address": data['email']}],
+            },
+            "content": {
+                "subject": data['subject'],
+                "plainText": data['asunto'],
+            }
+        }
 
+        poller = client.begin_send(message)
+        result = poller.result()
 
-@app.route('/send_verification_code', methods=['POST'])
-def send_verification_code():
-    data = request.json
-    email = data.get("email")
+    except Exception as ex:
+        print(ex)
+    return jsonify(data)
 
-    # Generar un código de verificación único
-    verification_code = ''.join(random.choices('1234567890', k=6))
-
-    # Llamar al endpoint de ms-security para enviar el correo electrónico con el código de verificación
+@app.route("/send_reset-password_code", methods=["POST"])
+def ResetPassword():
     try:
-        response = requests.post('http://localhost:8181/api/security/send_verification_code',
-                                 json={"email": email, "verification_code": verification_code})
-        response.raise_for_status()
-    except requests.exceptions.RequestException as e:
-        return jsonify({'error': f'Error al llamar al microservicio de seguridad: {str(e)}'}), 500
+        body = request.get_json()
+        user_email = body["email"]
+        code = body["code"]
+        template = (
+    '<!DOCTYPE html>'
+    '<html lang="es">'
+    '<head>'
+    '    <meta charset="UTF-8">'
+    '    <meta name="viewport" content="width=device-width, initial-scale=1.0">'
+    '    <title>Código de verificación</title>'
+    '    <style>'
+    '        body {'
+    '            font-family: Arial, sans-serif;'
+    '            background-color: #f4f4f4;'
+    '            color: #333;'
+    '            padding: 20px;'
+    '        }'
+    '        .container {'
+    '            max-width: 600px;'
+    '            margin: 50px auto;'
+    '            background-color: #fff;'
+    '            padding: 20px;'
+    '            border-radius: 8px;'
+    '            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);'
+    '        }'
+    '        h3 {'
+    '            color: #007bff;'
+    '            border-bottom: 2px solid #007bff;'
+    '            padding-bottom: 10px;'
+    '        }'
+    '        p {'
+    '            font-size: 18px;'
+    '        }'
+    '        strong {'
+    '            font-weight: bold;'
+    '            color: #007bff;'
+    '        }'
+    '    </style>'
+    '</head>'
+    '<body>'
+    '    <div class="container">'
+    '        <h3>Tu código de reseteo de contraseña está listo.</h3>'
+    f'        <p>Tu código es: <strong>{code}</strong></p>'
+    '    </div>'
+    '</body>'
+    '</html>'
+)
 
-    return jsonify({'message': 'Correo electrónico con código de verificación enviado correctamente'}), 200
+
+        message = {
+            "senderAddress": os.environ.get("SENDER_ADDRESS"),
+            "recipients": {
+                "to": [{"address": user_email}],
+            },
+            "content": {
+                "subject": "Código de autenticación",
+                "plainText": "Solicitaste un código de restauración de contraseña.",
+                "html": template,
+            },
+        }
+
+        poller = client.begin_send(message)
+        result = poller.result()
+        return jsonify({"message": "Email enviado correctamente", "body": result})
+                       
+    except Exception as e:
+        return (
+            jsonify(
+                {
+                    "message": "Error al enviar el correo",
+                    "error": e,
+                }
+            ),
+            500,
+        )
+
+@app.route("/send_2FAC", methods=["POST"])
+def secondFactor():
+    try:
+        body = request.get_json()
+        user_email = body["email"]
+        code = body["code"]
+        template = (
+    '<!DOCTYPE html>'
+    '<html lang="es">'
+    '<head>'
+    '    <meta charset="UTF-8">'
+    '    <meta name="viewport" content="width=device-width, initial-scale=1.0">'
+    '    <title>Código de verificación</title>'
+    '    <style>'
+    '        body {'
+    '            font-family: Arial, sans-serif;'
+    '            background-color: #f4f4f4;'
+    '            color: #333;'
+    '            padding: 20px;'
+    '        }'
+    '        .container {'
+    '            max-width: 600px;'
+    '            margin: 50px auto;'
+    '            background-color: #fff;'
+    '            padding: 20px;'
+    '            border-radius: 8px;'
+    '            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);'
+    '        }'
+    '        h3 {'
+    '            color: #007bff;'
+    '            border-bottom: 2px solid #007bff;'
+    '            padding-bottom: 10px;'
+    '        }'
+    '        p {'
+    '            font-size: 18px;'
+    '        }'
+    '        strong {'
+    '            font-weight: bold;'
+    '            color: #007bff;'
+    '        }'
+    '    </style>'
+    '</head>'
+    '<body>'
+    '    <div class="container">'
+    '        <h3>Tu código está listo.</h3>'
+    f'        <p>Tu código es: <strong>{code}</strong></p>'
+    '    </div>'
+    '</body>'
+    '</html>'
+)
+
+
+        message = {
+            "senderAddress": os.environ.get("SENDER_ADDRESS"),
+            "recipients": {
+                "to": [{"address": user_email}],
+            },
+            "content": {
+                "subject": "Código de autenticación",
+                "plainText": "Solicitaste un código de inicio de sesión.",
+                "html": template,
+            },
+        }
+
+        poller = client.begin_send(message)
+        result = poller.result()
+        return jsonify({"message": "Email enviado correctamente", "body": result})
+                       
+    except Exception as e:
+        return (
+            jsonify(
+                {
+                    "message": "Error al enviar el correo",
+                    "error": e,
+                }
+            ),
+            500,
+        )
 
 
 if __name__ == '__main__':
-    from waitress import serve
-    print("Server running ")
+    print('server running')
     serve(app, host='0.0.0.0', port=5000)
