@@ -43,7 +43,7 @@ def ResetPassword():
     try:
         body = request.get_json()
         user_email = body["email"]
-        code = body["code"]
+        new_password = body["new_password"]
         template = (
     '<!DOCTYPE html>'
     '<html lang="es">'
@@ -83,7 +83,7 @@ def ResetPassword():
     '<body>'
     '    <div class="container">'
     '        <h3>Tu código de reseteo de contraseña está listo.</h3>'
-    f'        <p>Tu código es: <strong>{code}</strong></p>'
+    f'        <p>Tu código es: <strong>{new_password}</strong></p>'
     '    </div>'
     '</body>'
     '</html>'
@@ -122,7 +122,7 @@ def secondFactor():
     try:
         body = request.get_json()
         user_email = body["email"]
-        code = body["code"]
+        token2FA = body["token2FA"]
         template = (
     '<!DOCTYPE html>'
     '<html lang="es">'
@@ -162,7 +162,7 @@ def secondFactor():
     '<body>'
     '    <div class="container">'
     '        <h3>Tu código está listo.</h3>'
-    f'        <p>Tu código es: <strong>{code}</strong></p>'
+    f'        <p>Tu código es: <strong>{token2FA}</strong></p>'
     '    </div>'
     '</body>'
     '</html>'
